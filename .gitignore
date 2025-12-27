@@ -10,3 +10,7 @@ venv/
 
 # IDE
 .idea/
+
+# runtime artifacts
+storage/*
+!storage/.gitkeep

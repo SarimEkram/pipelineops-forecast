@@ -4,6 +4,8 @@ services:
     container_name: pipelineops-backend
     ports:
       - "8000:8000"
+    volumes:
+      - ./storage:/data
 
   ui:
     build: ./ui
