@@ -131,3 +131,48 @@ async def upload_dataset(
         # Helpful for debugging (shows where it saved inside the container)
         "saved_path": str(out_path),
     }
+
+# This endpoint is for the UI preview:
+# - dataset_id comes from the URL path (example: /datasets/2ae51a31/sample)
+# - rows is a query param (example: ?rows=200)
+@app.get("/datasets/{dataset_id}/sample")
+def dataset_sample(
+    dataset_id: str,          # PATH PARAM: which dataset file to load
+    rows: int = 200           # QUERY PARAM: how many rows to return (default 200)
+):
+    # Safety: don’t let someone request a million rows and freeze the server
+    if rows < 1 or rows > 2000:
+        raise HTTPException(status_code=400, detail="rows must be between 1 and 2000")
+
+    # Build the exact file path we expect this dataset to live at
+    # Example: /data/datasets/2ae51a31.csv
+    path = DATASETS_DIR / f"{dataset_id}.csv"
+
+    # If the file doesn’t exist, return 404 (dataset not found)
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="dataset not found")
+
+    # Read the CSV from disk
+    df = pd.read_csv(path)
+
+    # Convert timestamp to datetime (so sorting behaves correctly)
+    df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
+
+    # Drop bad timestamp rows (if any)
+    df = df.dropna(subset=["timestamp"])
+
+    # Sort by timestamp so preview is always in time order
+    df = df.sort_values("timestamp")
+
+    # Take first N rows requested
+    preview = df.head(rows).copy()
+
+    # Convert timestamp back to string so JSON serialization is clean
+    preview["timestamp"] = preview["timestamp"].astype(str)
+
+    # Return a simple JSON payload the UI can consume easily
+    return {
+        "dataset_id": dataset_id,
+        "rows_returned": int(len(preview)),
+        "data": preview.to_dict(orient="records")  # list of {timestamp:..., flow_rate:...}
+    }
