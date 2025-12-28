@@ -174,5 +174,5 @@ def dataset_sample(
     return {
         "dataset_id": dataset_id,
         "rows_returned": int(len(preview)),
-        "data": preview.to_dict(orient="records")  # list of {timestamp:..., flow_rate:...}
+        "data": preview.to_dict(orient="records")  # list of {timestamp, flow_rate:}
     }
