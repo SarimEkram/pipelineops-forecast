@@ -160,14 +160,43 @@ elif page == "Upload Data":
 # -------------------------
 elif page == "Train Model":
     st.subheader("Train Model (Ridge Regression)")
-    st.write("This trains a simple next-step forecasting model on the uploaded dataset.")
+
+    # 1) fetch existing datasets from backend (you need a /datasets endpoint for this)
+    r = requests.get(f"{API_URL}/datasets", timeout=5)
+    datasets = r.json().get("datasets", [])
+
+    if not datasets:
+        st.warning("No datasets found. Upload one first.")
+        st.stop()
+
+    chosen = st.selectbox("Choose an existing dataset_id", datasets, key="dataset_choice")
+    st.session_state.dataset_id = chosen
+    st.caption(f"dataset_id: {st.session_state.dataset_id}")
 
     # If no dataset uploaded yet, we can’t train anything
     if not st.session_state.dataset_id:
-        st.warning("No dataset uploaded yet. Go to **Upload Data** first.")
-        st.stop()
+        st.info("No dataset selected yet. Loading existing datasets from storage...")
 
-    st.caption(f"dataset_id: {st.session_state.dataset_id}")
+        try:
+            r = requests.get(f"{API_URL}/datasets", timeout=5)
+            if r.status_code == 200:
+                datasets = r.json().get("datasets", [])
+                if datasets:
+                    chosen = st.selectbox("Choose an existing dataset_id", datasets)
+                    if st.button("Use this dataset"):
+                        st.session_state.dataset_id = chosen
+                        st.rerun()
+                else:
+                    st.warning("No datasets found. Upload one first.")
+                    st.stop()
+            else:
+                st.error(r.text)
+                st.stop()
+        except Exception as e:
+            st.error(f"Could not reach backend: {e}")
+            st.stop()
+
+    # st.caption(f"dataset_id: {st.session_state.dataset_id}")
 
     # Training controls (matches your FastAPI TrainModelRequest schema)
     col1, col2 = st.columns(2)

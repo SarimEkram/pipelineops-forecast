@@ -255,3 +255,8 @@ def train_model(req: TrainModelRequest):
     # Any unexpected error becomes a 500
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Training failed: {e}")
+
+@app.get("/datasets")
+def list_datasets():
+    files = sorted(DATASETS_DIR.glob("*.csv"))
+    return {"datasets": [f.stem for f in files]}  # stem = filename without .csv
