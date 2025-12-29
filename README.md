@@ -1,7 +1,15 @@
 # PipelineOps Forecast
 
-Pipeline operations dashboard (MVP) for time-series forecasting and anomaly review using sensor-style data.
+A small “pipeline operations” style forecasting dashboard.
+You can upload a time-series dataset (CSV), preview it, and (next) train a simple forecasting model.
 
-## Run locally
-```bash
-docker compose up --build
+## Tech Stack
+- UI: Streamlit
+- Backend API: FastAPI
+- Containerization: Docker + Docker Compose
+- Data handling: pandas
+
+## Quick Start (recommended)
+1. Build and run everything:
+   ```bash
+   docker compose up --build
