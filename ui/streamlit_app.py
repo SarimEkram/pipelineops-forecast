@@ -22,9 +22,14 @@ API_URL = "http://backend:8000"
 
 # Streamlit apps re-run top-to-bottom any time the user clicks something.
 # session_state is how we "remember" values between reruns.
-# Here we create a storage slot for dataset_id if it doesn't exist yet.
+
+# Create a storage slot for dataset_id if it doesn't exist yet.
 if "dataset_id" not in st.session_state:
     st.session_state.dataset_id = None  # Nothing uploaded yet
+
+# Create a storage slot for dataset_rows (total row count) if it doesn't exist yet.
+if "dataset_rows" not in st.session_state:
+    st.session_state.dataset_rows = None  # Unknown until we upload a dataset
 
 # Sidebar navigation: user selects which page to view.
 # radio() returns the selected string.
@@ -91,8 +96,10 @@ elif page == "Upload Data":
                     data = r.json()  # convert backend response to a Python dict
 
                     # Save dataset_id so we can use it later for preview/training.
-                    # session_state keeps this value during the app session.
                     st.session_state.dataset_id = data["dataset_id"]
+
+                    # Save total row count so the preview slider can be dynamic.
+                    st.session_state.dataset_rows = data.get("rows")
 
                     # Show success message + dataset id so user can see it.
                     st.success(f"Upload successful. Dataset ID: {st.session_state.dataset_id}")
@@ -109,20 +116,36 @@ elif page == "Upload Data":
                 st.error(f"Upload failed: {e}")
 
     # If we have a dataset_id saved, we can preview it.
-    # This is how the UI "knows" a dataset exists to work with.
     if st.session_state.dataset_id:
-        # Horizontal divider for visual separation
         st.divider()
-
-        # Header for preview section
         st.subheader("Dataset Preview")
-
-        # Show which dataset the preview belongs to
         st.caption(f"dataset_id: {st.session_state.dataset_id}")
 
-        # Slider lets user choose how many rows to fetch for preview.
-        # We limit it to avoid huge API responses.
-        rows = st.slider("Rows to preview", min_value=10, max_value=500, value=200, step=10)
+        # Decide how many rows a user is allowed to preview.
+        # - If we don't know dataset size yet, allow up to 500.
+        # - If we do know it, allow up to the smaller of (500, total_rows).
+        total_rows = st.session_state.dataset_rows
+        max_preview = 500 if total_rows is None else min(500, total_rows)
+
+        # Safety: slider max can't be below the slider min (10).
+        max_preview = max(10, max_preview)
+
+        # UX: if the dataset is small, use step=1 for finer control.
+        # If it's larger, step=10 keeps the slider quick to use.
+        step = 1 if max_preview <= 50 else 10
+
+        # Choose slider default:
+        # - prefer 200
+        # - but never exceed max_preview
+        default_rows = min(200, max_preview)
+
+        rows = st.slider(
+            "Rows to preview",
+            min_value=10,
+            max_value=max_preview,
+            value=default_rows,
+            step=step
+        )
 
         try:
             # Call the backend sample endpoint to fetch the first N rows.
@@ -133,9 +156,8 @@ elif page == "Upload Data":
                 timeout=10
             )
 
-            # If backend returned 200, we got preview data back.
             if r.status_code == 200:
-                payload = r.json()  # dict with keys like dataset_id, data, rows_returned
+                payload = r.json()
 
                 # payload["data"] is a list of rows (each row is a dict).
                 # Turning it into a pandas DataFrame makes it easy to display + chart.
@@ -152,14 +174,10 @@ elif page == "Upload Data":
                     # Ensure the data is in time order before plotting.
                     df = df.sort_values("timestamp")
 
-                    # Streamlit line_chart uses the index as the x-axis.
-                    # We set timestamp as the index and plot flow_rate as the y-axis.
+                    # Plot flow_rate over time.
                     st.line_chart(df.set_index("timestamp")["flow_rate"])
-
             else:
-                # Backend responded but with an error (show it).
                 st.error(r.text)
 
         except Exception as e:
-            # Network error / backend down / endpoint missing / etc.
             st.error(f"Preview failed: {e}")
