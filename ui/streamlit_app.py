@@ -1,11 +1,16 @@
-# Streamlit = the library that builds the web UI in Python
+# Streamlit = builds the web UI in Python
 import streamlit as st
 
-# requests = lets our UI talk to the backend API over HTTP (GET/POST)
+# requests = lets the UI talk to the backend API over HTTP (GET/POST)
 import requests
 
 # pandas = used for tables + time parsing + sorting (makes charting easy)
 import pandas as pd
+
+
+# -------------------------
+# App configuration / header
+# -------------------------
 
 # Sets basic settings for the Streamlit page (tab title + wide layout)
 st.set_page_config(page_title="PipelineOps Forecast", layout="wide")
@@ -16,140 +21,116 @@ st.title("PipelineOps Forecast")
 # Smaller text under the title
 st.caption("Pipeline operations dashboard (MVP)")
 
-# This is where our backend lives INSIDE docker-compose.
-# "backend" is the service name from docker-compose.yml, not localhost.
+
+# -------------------------
+# Backend address
+# -------------------------
+
+# Inside docker-compose, "backend" is the service name, not localhost.
+# If you run UI outside Docker, change to "http://localhost:8000".
 API_URL = "http://backend:8000"
 
-# Streamlit apps re-run top-to-bottom any time the user clicks something.
-# session_state is how we "remember" values between reruns.
 
-# Create a storage slot for dataset_id if it doesn't exist yet.
+# -------------------------
+# Session state (memory between reruns)
+# -------------------------
+
+# Streamlit reruns the script any time you interact with the UI.
+# session_state is how we "remember" things like dataset_id/model_id between reruns.
 if "dataset_id" not in st.session_state:
-    st.session_state.dataset_id = None  # Nothing uploaded yet
+    st.session_state.dataset_id = None  # nothing uploaded yet
 
-# Create a storage slot for dataset_rows (total row count) if it doesn't exist yet.
 if "dataset_rows" not in st.session_state:
-    st.session_state.dataset_rows = None  # Unknown until we upload a dataset
+    st.session_state.dataset_rows = None  # set after upload (helps cap the preview slider)
 
-# Sidebar navigation: user selects which page to view.
-# radio() returns the selected string.
-page = st.sidebar.radio("Navigation", ["System Check", "Upload Data"])
+if "model_id" not in st.session_state:
+    st.session_state.model_id = None  # set after training
+
+
+# -------------------------
+# Sidebar navigation
+# -------------------------
+
+page = st.sidebar.radio("Navigation", ["System Check", "Upload Data", "Train Model"])
+
 
 # -------------------------
 # Page 1: System Check
 # -------------------------
 if page == "System Check":
-    # Header for this section
     st.subheader("System Check")
 
-    # We wrap backend calls in try/except so the UI doesn't crash if backend is down.
     try:
-        # Call the backend /health endpoint to check if backend is running.
-        # timeout=2 means: don't hang longer than 2 seconds.
+        # Ping backend health endpoint so we know the API is reachable
         r = requests.get(f"{API_URL}/health", timeout=2)
 
-        # If the backend returns HTTP 200, it means it's healthy.
         if r.status_code == 200:
-            # Show a green success box and print the JSON response.
             st.success(f"Backend API: OK ({r.json()})")
         else:
-            # If backend responded but not with 200, show the status code.
-            st.error(f"Backend API returned {r.status_code}")
+            st.error(f"Backend API returned {r.status_code}: {r.text}")
 
     except Exception as e:
-        # If the backend can't be reached at all, show the error message.
         st.error(f"Backend API not reachable ({e})")
+
 
 # -------------------------
 # Page 2: Upload Data
 # -------------------------
 elif page == "Upload Data":
-    # Header for upload page
     st.subheader("Upload Data (CSV)")
-
-    # Instructions for the user about required column names
     st.write("Required columns: timestamp, flow_rate")
 
-    # File picker UI.
-    # type=["csv"] means user can only pick CSV files.
+    # File picker UI (only CSV allowed)
     uploaded = st.file_uploader("Choose a CSV file", type=["csv"])
 
-    # If the user picked a file, uploaded will not be None.
     if uploaded is not None:
-        # Show which file was selected so user has confirmation.
         st.info(f"Selected: {uploaded.name}")
 
-        # We only upload when the user presses the button.
-        # This prevents uploading repeatedly on every rerun.
+        # Upload happens only when the user clicks (prevents repeated uploads on rerun)
         if st.button("Upload to Backend"):
-            # Build a "multipart/form-data" payload for FastAPI to receive.
-            # uploaded.getvalue() gives the raw file bytes.
             files = {"file": (uploaded.name, uploaded.getvalue(), "text/csv")}
 
             try:
-                # POST the file to the backend upload endpoint.
-                # timeout=30 because upload + parsing can take longer.
                 r = requests.post(f"{API_URL}/datasets/upload", files=files, timeout=30)
 
-                # If upload succeeded (HTTP 200), backend returns JSON details.
                 if r.status_code == 200:
-                    data = r.json()  # convert backend response to a Python dict
+                    data = r.json()
 
-                    # Save dataset_id so we can use it later for preview/training.
+                    # Store dataset details so other pages can use them
                     st.session_state.dataset_id = data["dataset_id"]
-
-                    # Save total row count so the preview slider can be dynamic.
                     st.session_state.dataset_rows = data.get("rows")
 
-                    # Show success message + dataset id so user can see it.
+                    # Optional: reset model_id when a new dataset is uploaded
+                    st.session_state.model_id = None
+
                     st.success(f"Upload successful. Dataset ID: {st.session_state.dataset_id}")
-
-                    # Show full backend response for transparency/debugging.
                     st.json(data)
-
                 else:
-                    # If backend returned an error, show the raw error text.
                     st.error(r.text)
 
             except Exception as e:
-                # Network error / backend down / etc.
                 st.error(f"Upload failed: {e}")
 
-    # If we have a dataset_id saved, we can preview it.
+    # Dataset preview (only shows if we have a dataset_id saved)
     if st.session_state.dataset_id:
         st.divider()
         st.subheader("Dataset Preview")
         st.caption(f"dataset_id: {st.session_state.dataset_id}")
 
-        # Decide how many rows a user is allowed to preview.
-        # - If we don't know dataset size yet, allow up to 500.
-        # - If we do know it, allow up to the smaller of (500, total_rows).
+        # Cap preview rows to protect the API + UI from huge responses
         total_rows = st.session_state.dataset_rows
-        max_preview = 500 if total_rows is None else min(500, total_rows)
-
-        # Safety: slider max can't be below the slider min (10).
-        max_preview = max(10, max_preview)
-
-        # UX: if the dataset is small, use step=1 for finer control.
-        # If it's larger, step=10 keeps the slider quick to use.
-        step = 1 if max_preview <= 50 else 10
-
-        # Choose slider default:
-        # - prefer 200
-        # - but never exceed max_preview
-        default_rows = min(200, max_preview)
+        max_preview = 500 if total_rows is None else min(500, int(total_rows))
+        max_preview = max(10, max_preview)  # safety: max must be >= min
 
         rows = st.slider(
             "Rows to preview",
             min_value=10,
             max_value=max_preview,
-            value=default_rows,
-            step=step
+            value=min(200, max_preview),
+            step=10
         )
 
         try:
-            # Call the backend sample endpoint to fetch the first N rows.
-            # params={"rows": rows} becomes ?rows=200 in the URL.
             r = requests.get(
                 f"{API_URL}/datasets/{st.session_state.dataset_id}/sample",
                 params={"rows": rows},
@@ -158,26 +139,91 @@ elif page == "Upload Data":
 
             if r.status_code == 200:
                 payload = r.json()
-
-                # payload["data"] is a list of rows (each row is a dict).
-                # Turning it into a pandas DataFrame makes it easy to display + chart.
                 df = pd.DataFrame(payload["data"])
 
-                # Show the table in the UI (scrollable).
                 st.dataframe(df, use_container_width=True)
 
-                # Only chart if the columns exist (basic safety check).
+                # Plot flow_rate over time if columns are present
                 if "timestamp" in df.columns and "flow_rate" in df.columns:
-                    # Convert timestamp strings into actual datetimes (so sorting works properly).
-                    df["timestamp"] = pd.to_datetime(df["timestamp"])
-
-                    # Ensure the data is in time order before plotting.
-                    df = df.sort_values("timestamp")
-
-                    # Plot flow_rate over time.
+                    df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
+                    df = df.dropna(subset=["timestamp"]).sort_values("timestamp")
                     st.line_chart(df.set_index("timestamp")["flow_rate"])
             else:
                 st.error(r.text)
 
         except Exception as e:
             st.error(f"Preview failed: {e}")
+
+
+# -------------------------
+# Page 3: Train Model
+# -------------------------
+elif page == "Train Model":
+    st.subheader("Train Model (Ridge Regression)")
+    st.write("This trains a simple next-step forecasting model on the uploaded dataset.")
+
+    # If no dataset uploaded yet, we can’t train anything
+    if not st.session_state.dataset_id:
+        st.warning("No dataset uploaded yet. Go to **Upload Data** first.")
+        st.stop()
+
+    st.caption(f"dataset_id: {st.session_state.dataset_id}")
+
+    # Training controls (matches your FastAPI TrainModelRequest schema)
+    col1, col2 = st.columns(2)
+
+    with col1:
+        test_size = st.slider(
+            "Test size (fraction of most recent data held out)",
+            min_value=0.05,
+            max_value=0.50,
+            value=0.20,
+            step=0.05
+        )
+
+    with col2:
+        alpha = st.number_input(
+            "Ridge alpha (regularization strength)",
+            min_value=0.01,
+            value=1.0,
+            step=0.1
+        )
+
+    # Train button (only runs when clicked)
+    if st.button("Train Model"):
+        try:
+            payload = {
+                "dataset_id": st.session_state.dataset_id,
+                "test_size": float(test_size),
+                "alpha": float(alpha),
+            }
+
+            r = requests.post(f"{API_URL}/models/train", json=payload, timeout=60)
+
+            if r.status_code == 200:
+                data = r.json()
+                st.session_state.model_id = data.get("model_id")
+
+                st.success(f"Training complete. model_id: {st.session_state.model_id}")
+
+                # Show the key results first (easy to read)
+                metric_col1, metric_col2, metric_col3 = st.columns(3)
+                metric_col1.metric("MAE", f"{data.get('mae', 0):.4f}")
+                metric_col2.metric("RMSE", f"{data.get('rmse', 0):.4f}")
+                metric_col3.metric("Rows used", str(data.get("rows_used", "")))
+
+                # Full JSON for debugging / transparency
+                st.json(data)
+
+            else:
+                st.error(r.text)
+
+        except Exception as e:
+            st.error(f"Training failed: {e}")
+
+    # If we already trained in this session, show the last model id
+    if st.session_state.model_id:
+        st.divider()
+        st.subheader("Latest trained model")
+        st.caption(f"model_id: {st.session_state.model_id}")
+        st.info("Model files are saved by the backend under `storage/models/<model_id>.joblib` (via the /data volume mount).")
