@@ -1,16 +1,46 @@
+# -----------------------
 # Python
+# -----------------------
 __pycache__/
 *.py[cod]
+*.pyo
+*.pyd
+
+# Virtual environments
 .venv/
 venv/
-.env
+env/
+ENV/
 
+# Environment variables / secrets
+.env
+.env.*
+!.env.example
+
+# -----------------------
 # macOS
+# -----------------------
 .DS_Store
 
-# IDE
+# -----------------------
+# IDE / editors
+# -----------------------
 .idea/
+.vscode/
+*.iml
 
-# runtime artifacts
-storage/*
-!storage/.gitkeep
+# -----------------------
+# Logs
+# -----------------------
+*.log
+
+# -----------------------
+# Project runtime artifacts (DO NOT COMMIT)
+# -----------------------
+# Uploaded datasets + trained model artifacts
+storage/datasets/*
+storage/models/*
+
+# Keep empty folders in git
+!storage/datasets/.gitkeep
+!storage/models/.gitkeep
