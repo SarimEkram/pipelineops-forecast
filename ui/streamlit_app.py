@@ -46,12 +46,33 @@ if "dataset_rows" not in st.session_state:
 if "model_id" not in st.session_state:
     st.session_state.model_id = None  # set after training
 
+# --- upload page specific state (prevents old previews from showing) ---
+if "uploader_key" not in st.session_state:
+    st.session_state.uploader_key = 0  # used to reset file_uploader
+
+if "upload_preview_dataset_id" not in st.session_state:
+    st.session_state.upload_preview_dataset_id = None  # only for Upload Data page preview
+
+if "upload_preview_rows" not in st.session_state:
+    st.session_state.upload_preview_rows = None
+
+if "last_page" not in st.session_state:
+    st.session_state.last_page = None
+
 
 # -------------------------
 # Sidebar navigation
 # -------------------------
 
 page = st.sidebar.radio("Navigation", ["System Check", "Upload Data", "Train Model"])
+
+# reset Upload Data page UI/preview each time user navigates into it
+if st.session_state.last_page != page:
+    if page == "Upload Data":
+        st.session_state.upload_preview_dataset_id = None
+        st.session_state.upload_preview_rows = None
+        st.session_state.uploader_key += 1  # clears file_uploader selection
+    st.session_state.last_page = page
 
 
 # -------------------------
@@ -80,8 +101,19 @@ elif page == "Upload Data":
     st.subheader("Upload Data (CSV)")
     st.write("Required columns: timestamp, flow_rate")
 
-    # File picker UI (only CSV allowed)
-    uploaded = st.file_uploader("Choose a CSV file", type=["csv"])
+    # Clear button (optional but helpful)
+    if st.button("Clear Upload Page"):
+        st.session_state.upload_preview_dataset_id = None
+        st.session_state.upload_preview_rows = None
+        st.session_state.uploader_key += 1
+        st.rerun()
+
+    # File picker UI (only CSV allowed) — key makes it reset cleanly
+    uploaded = st.file_uploader(
+        "Choose a CSV file",
+        type=["csv"],
+        key=f"uploader_{st.session_state.uploader_key}"
+    )
 
     if uploaded is not None:
         st.info(f"Selected: {uploaded.name}")
@@ -100,6 +132,10 @@ elif page == "Upload Data":
                     st.session_state.dataset_id = data["dataset_id"]
                     st.session_state.dataset_rows = data.get("rows")
 
+                    # Upload page preview should show ONLY what was uploaded here
+                    st.session_state.upload_preview_dataset_id = data["dataset_id"]
+                    st.session_state.upload_preview_rows = data.get("rows")
+
                     # Optional: reset model_id when a new dataset is uploaded
                     st.session_state.model_id = None
 
@@ -111,14 +147,14 @@ elif page == "Upload Data":
             except Exception as e:
                 st.error(f"Upload failed: {e}")
 
-    # Dataset preview (only shows if we have a dataset_id saved)
-    if st.session_state.dataset_id:
+    # Dataset preview (shows ONLY if something was uploaded on this Upload page visit)
+    if st.session_state.upload_preview_dataset_id:
         st.divider()
         st.subheader("Dataset Preview")
-        st.caption(f"dataset_id: {st.session_state.dataset_id}")
+        st.caption(f"dataset_id: {st.session_state.upload_preview_dataset_id}")
 
         # Cap preview rows to protect the API + UI from huge responses
-        total_rows = st.session_state.dataset_rows
+        total_rows = st.session_state.upload_preview_rows
         max_preview = 500 if total_rows is None else min(500, int(total_rows))
         max_preview = max(10, max_preview)  # safety: max must be >= min
 
@@ -132,7 +168,7 @@ elif page == "Upload Data":
 
         try:
             r = requests.get(
-                f"{API_URL}/datasets/{st.session_state.dataset_id}/sample",
+                f"{API_URL}/datasets/{st.session_state.upload_preview_dataset_id}/sample",
                 params={"rows": rows},
                 timeout=10
             )
@@ -196,7 +232,7 @@ elif page == "Train Model":
             st.error(f"Could not reach backend: {e}")
             st.stop()
 
-    # st.caption(f"dataset_id: {st.session_state.dataset_id}")
+    st.caption(f"dataset_id: {st.session_state.dataset_id}")
 
     # Training controls (matches your FastAPI TrainModelRequest schema)
     col1, col2 = st.columns(2)
