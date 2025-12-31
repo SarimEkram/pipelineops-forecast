@@ -232,7 +232,7 @@ elif page == "Train Model":
             st.error(f"Could not reach backend: {e}")
             st.stop()
 
-    st.caption(f"dataset_id: {st.session_state.dataset_id}")
+    # st.caption(f"dataset_id: {st.session_state.dataset_id}")  # <- removed to prevent duplicate
 
     # Training controls (matches your FastAPI TrainModelRequest schema)
     col1, col2 = st.columns(2)
