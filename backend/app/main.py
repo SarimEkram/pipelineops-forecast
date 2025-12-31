@@ -18,8 +18,7 @@ from io import BytesIO
 
 from pydantic import BaseModel, Field
 
-from .ml_train import train_ridge_model
-
+from .ml_train import train_ridge_model, forecast_next_hours
 
 # Create the FastAPI app (this is the server)
 # title shows up in the docs UI at /docs
@@ -29,8 +28,11 @@ app = FastAPI(title="PipelineOps API")
 # That means anything we save under /data will appear in your repo's storage/ folder
 DATA_DIR = Path("/data")
 
-# We'll store uploaded datasets in /data/datasets/
+# storing uploaded datasets in /data/datasets/
 DATASETS_DIR = DATA_DIR / "datasets"
+
+MODELS_DIR = DATA_DIR / "models"
+MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
 # Make sure the folder exists (parents=True means create missing parent folders too)
 # exist_ok=True means "don't error if it already exists"
@@ -256,7 +258,40 @@ def train_model(req: TrainModelRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Training failed: {e}")
 
+
 @app.get("/datasets")
 def list_datasets():
     files = sorted(DATASETS_DIR.glob("*.csv"))
     return {"datasets": [f.stem for f in files]}  # stem = filename without .csv
+
+
+@app.get("/models")
+def list_models():
+    files = sorted(MODELS_DIR.glob("*.joblib"))
+    return {"models": [f.stem for f in files]}
+
+
+class PredictRequest(BaseModel):
+    model_id: str = Field(..., description="Model id returned from /models/train")
+    dataset_id: str | None = Field(None, description="Optional dataset id (defaults to the model's dataset_id)")
+    horizon: int = Field(24, ge=1, le=168, description="How many hours ahead to forecast (1-168)")
+
+
+@app.post("/models/predict")
+def predict(req: PredictRequest):
+    try:
+        result = forecast_next_hours(
+            model_id=req.model_id,
+            dataset_id=req.dataset_id,
+            horizon=req.horizon,
+        )
+        return result
+
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Prediction failed: {e}")

@@ -59,12 +59,16 @@ if "upload_preview_rows" not in st.session_state:
 if "last_page" not in st.session_state:
     st.session_state.last_page = None
 
+# --- forecast page state ---
+if "forecast_result" not in st.session_state:
+    st.session_state.forecast_result = None
+
 
 # -------------------------
 # Sidebar navigation
 # -------------------------
 
-page = st.sidebar.radio("Navigation", ["System Check", "Upload Data", "Train Model"])
+page = st.sidebar.radio("Navigation", ["System Check", "Upload Data", "Train Model", "Forecast"])
 
 # reset Upload Data page UI/preview each time user navigates into it
 if st.session_state.last_page != page:
@@ -72,6 +76,10 @@ if st.session_state.last_page != page:
         st.session_state.upload_preview_dataset_id = None
         st.session_state.upload_preview_rows = None
         st.session_state.uploader_key += 1  # clears file_uploader selection
+
+    if page == "Forecast":
+        st.session_state.forecast_result = None  # prevents old forecast from showing like a "ghost" result
+
     st.session_state.last_page = page
 
 
@@ -292,3 +300,134 @@ elif page == "Train Model":
         st.subheader("Latest trained model")
         st.caption(f"model_id: {st.session_state.model_id}")
         st.info("Model files are saved by the backend under `storage/models/<model_id>.joblib` (via the /data volume mount).")
+
+
+# -------------------------
+# Page 4: Forecast
+# -------------------------
+elif page == "Forecast":
+    st.subheader("Forecast (Next-Hours Prediction)")
+    st.write("Pick a dataset + a trained model, then generate a next-hours forecast.")
+
+    # Fetch datasets
+    try:
+        r_ds = requests.get(f"{API_URL}/datasets", timeout=5)
+        datasets = r_ds.json().get("datasets", [])
+    except Exception as e:
+        st.error(f"Could not reach backend for datasets: {e}")
+        st.stop()
+
+    if not datasets:
+        st.warning("No datasets found. Upload one first.")
+        st.stop()
+
+    # Fetch models
+    try:
+        r_m = requests.get(f"{API_URL}/models", timeout=5)
+        models = r_m.json().get("models", [])
+    except Exception as e:
+        st.error(f"Could not reach backend for models: {e}")
+        st.stop()
+
+    if not models:
+        st.warning("No models found. Train a model first.")
+        st.stop()
+
+    # Default selections (use session_state if available)
+    ds_default = st.session_state.dataset_id if st.session_state.dataset_id in datasets else datasets[0]
+    m_default = st.session_state.model_id if st.session_state.model_id in models else models[0]
+
+    ds_index = datasets.index(ds_default)
+    m_index = models.index(m_default)
+
+    colA, colB, colC = st.columns([2, 2, 1])
+
+    with colA:
+        dataset_id = st.selectbox("Dataset", datasets, index=ds_index, key="forecast_dataset")
+
+    with colB:
+        model_id = st.selectbox("Model", models, index=m_index, key="forecast_model")
+
+    with colC:
+        horizon = st.number_input("Horizon (hours)", min_value=1, max_value=168, value=24, step=1)
+
+    st.caption(f"dataset_id: {dataset_id}")
+    st.caption(f"model_id: {model_id}")
+
+    if st.button("Run Forecast"):
+        try:
+            payload = {
+                "model_id": model_id,
+                "dataset_id": dataset_id,  # explicit so there's no confusion
+                "horizon": int(horizon),
+            }
+
+            r = requests.post(f"{API_URL}/models/predict", json=payload, timeout=60)
+
+            if r.status_code == 200:
+                st.session_state.forecast_result = r.json()
+                st.success("Forecast generated successfully.")
+            else:
+                st.error(r.text)
+
+        except Exception as e:
+            st.error(f"Forecast failed: {e}")
+
+    # Display results
+    if st.session_state.forecast_result:
+        result = st.session_state.forecast_result
+
+        preds = result.get("predictions", [])
+        if not preds:
+            st.warning("No predictions returned.")
+            st.stop()
+
+        pred_df = pd.DataFrame(preds)
+        pred_df["timestamp"] = pd.to_datetime(pred_df["timestamp"], errors="coerce")
+        pred_df = pred_df.dropna(subset=["timestamp"]).sort_values("timestamp")
+        pred_df = pred_df.set_index("timestamp")
+
+        # Pull recent actuals (we request up to 2000, then take the tail)
+        try:
+            r = requests.get(
+                f"{API_URL}/datasets/{dataset_id}/sample",
+                params={"rows": 2000},
+                timeout=15
+            )
+            if r.status_code == 200:
+                payload = r.json()
+                actual_df = pd.DataFrame(payload.get("data", []))
+
+                if "timestamp" in actual_df.columns and "flow_rate" in actual_df.columns:
+                    actual_df["timestamp"] = pd.to_datetime(actual_df["timestamp"], errors="coerce")
+                    actual_df["flow_rate"] = pd.to_numeric(actual_df["flow_rate"], errors="coerce")
+                    actual_df = actual_df.dropna(subset=["timestamp", "flow_rate"]).sort_values("timestamp")
+
+                    # show last N actual points
+                    actual_df = actual_df.tail(200).set_index("timestamp")
+                else:
+                    actual_df = None
+            else:
+                actual_df = None
+                st.error(r.text)
+        except Exception as e:
+            actual_df = None
+            st.error(f"Could not load actuals for plotting: {e}")
+
+        st.divider()
+        st.subheader("Forecast Plot")
+
+        # Build a combined frame so Streamlit can chart both series
+        combined = pd.DataFrame(index=pd.Index([], name="timestamp"))
+
+        if actual_df is not None and len(actual_df) > 0:
+            combined = combined.join(actual_df.rename(columns={"flow_rate": "actual_flow_rate"}), how="outer")
+
+        combined = combined.join(pred_df.rename(columns={"predicted_flow_rate": "forecast_flow_rate"}), how="outer")
+        combined = combined.sort_index()
+
+        st.line_chart(combined, use_container_width=True)
+
+        st.divider()
+        st.subheader("Forecast Table (next hours)")
+        st.dataframe(pred_df.reset_index(), use_container_width=True)
