@@ -106,8 +106,8 @@ if page == "System Check":
 # Page 2: Upload Data
 # -------------------------
 elif page == "Upload Data":
-    st.subheader("Upload Data (CSV)")
-    st.write("Required columns: timestamp, flow_rate")
+    st.subheader("Upload Data (CSV or Excel)")
+    st.write("CSV must have columns: timestamp, flow_rate. Excel can be mapped using dropdowns below.")
 
     # Clear button (optional but helpful)
     if st.button("Clear Upload Page"):
@@ -116,21 +116,71 @@ elif page == "Upload Data":
         st.session_state.uploader_key += 1
         st.rerun()
 
-    # File picker UI (only CSV allowed) — key makes it reset cleanly
     uploaded = st.file_uploader(
-        "Choose a CSV file",
-        type=["csv"],
+        "Choose a CSV or XLSX file",
+        type=["csv", "xlsx"],
         key=f"uploader_{st.session_state.uploader_key}"
     )
+
+    excel_df = None
+    ts_col = None
+    val_col = None
 
     if uploaded is not None:
         st.info(f"Selected: {uploaded.name}")
 
+        ext = uploaded.name.split(".")[-1].lower()
+
+        # If XLSX, load it locally so user can choose columns (e.g., DT_MST + Calgary)
+        if ext == "xlsx":
+            try:
+                excel_df = pd.read_excel(uploaded, engine="openpyxl")
+                st.caption(f"Excel loaded: {excel_df.shape[0]} rows × {excel_df.shape[1]} cols")
+
+                cols = list(excel_df.columns)
+
+                # Good defaults for AESO-style file
+                default_ts = cols.index("DT_MST") if "DT_MST" in cols else 0
+                default_val = cols.index("Calgary") if "Calgary" in cols else (1 if len(cols) > 1 else 0)
+
+                c1, c2 = st.columns(2)
+                with c1:
+                    ts_col = st.selectbox("Timestamp column", cols, index=default_ts)
+                with c2:
+                    val_col = st.selectbox("Value column (flow_rate)", cols, index=default_val)
+
+                st.caption("Preview (first 10 rows of selected columns)")
+                st.dataframe(excel_df[[ts_col, val_col]].head(10), use_container_width=True)
+
+            except Exception as e:
+                st.error(f"Could not read Excel file: {e}")
+                st.stop()
+
         # Upload happens only when the user clicks (prevents repeated uploads on rerun)
         if st.button("Upload to Backend"):
-            files = {"file": (uploaded.name, uploaded.getvalue(), "text/csv")}
-
             try:
+                # If XLSX: convert to standard CSV (timestamp, flow_rate) before sending
+                if ext == "xlsx":
+                    if excel_df is None:
+                        st.error("Excel not loaded. Please re-select the file.")
+                        st.stop()
+
+                    if ts_col is None or val_col is None:
+                        st.error("Please choose the timestamp and value columns.")
+                        st.stop()
+
+                    df_send = excel_df[[ts_col, val_col]].copy()
+                    df_send = df_send.rename(columns={ts_col: "timestamp", val_col: "flow_rate"})
+
+                    # Convert to CSV bytes for backend
+                    csv_bytes = df_send.to_csv(index=False).encode("utf-8")
+                    upload_name = uploaded.name.rsplit(".", 1)[0] + ".csv"
+                    files = {"file": (upload_name, csv_bytes, "text/csv")}
+
+                else:
+                    # CSV: send as-is
+                    files = {"file": (uploaded.name, uploaded.getvalue(), "text/csv")}
+
                 r = requests.post(f"{API_URL}/datasets/upload", files=files, timeout=30)
 
                 if r.status_code == 200:
@@ -161,10 +211,9 @@ elif page == "Upload Data":
         st.subheader("Dataset Preview")
         st.caption(f"dataset_id: {st.session_state.upload_preview_dataset_id}")
 
-        # Cap preview rows to protect the API + UI from huge responses
         total_rows = st.session_state.upload_preview_rows
         max_preview = 500 if total_rows is None else min(500, int(total_rows))
-        max_preview = max(10, max_preview)  # safety: max must be >= min
+        max_preview = max(10, max_preview)
 
         rows = st.slider(
             "Rows to preview",
@@ -187,7 +236,6 @@ elif page == "Upload Data":
 
                 st.dataframe(df, use_container_width=True)
 
-                # Plot flow_rate over time if columns are present
                 if "timestamp" in df.columns and "flow_rate" in df.columns:
                     df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
                     df = df.dropna(subset=["timestamp"]).sort_values("timestamp")
@@ -197,6 +245,7 @@ elif page == "Upload Data":
 
         except Exception as e:
             st.error(f"Preview failed: {e}")
+
 
 
 # -------------------------
