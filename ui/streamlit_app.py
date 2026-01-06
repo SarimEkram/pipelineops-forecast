@@ -67,7 +67,7 @@ if "forecast_model_prev" not in st.session_state:
 # Sidebar navigation
 # -------------------------
 
-page = st.sidebar.radio("Navigation", ["System Check", "Upload Data", "Train Model", "Models", "Forecast"])
+page = st.sidebar.radio("Navigation", ["System Check", "Upload Data", "Train Model", "Models", "Forecast"], key="nav")
 
 # reset Upload Data page UI/preview each time user navigates into it
 if st.session_state.last_page != page:
@@ -402,12 +402,14 @@ elif page == "Models":
     st.dataframe(df, use_container_width=True)
 
     st.divider()
-    best_default = st.session_state.model_id if st.session_state.model_id in model_ids else model_ids[0]
-    chosen_model = st.selectbox("Select a model to use", model_ids, index=model_ids.index(best_default))
+    ordered_model_ids = df["model_id"].astype(str).tolist()
+    best_default = st.session_state.model_id if st.session_state.model_id in ordered_model_ids else ordered_model_ids[0]
+    chosen_model = st.selectbox("Select a model to use", ordered_model_ids, index=ordered_model_ids.index(best_default))
 
     if st.button("Use selected model for Forecast"):
         st.session_state.model_id = chosen_model
-        st.success(f"Selected model_id set to: {chosen_model}. Go to the Forecast page and run prediction.")
+        st.session_state.nav = "Forecast"
+        st.rerun()
 
 
 # -------------------------
