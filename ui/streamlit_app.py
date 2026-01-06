@@ -63,6 +63,9 @@ if "last_page" not in st.session_state:
 if "forecast_result" not in st.session_state:
     st.session_state.forecast_result = None
 
+if "forecast_model_prev" not in st.session_state:
+    st.session_state.forecast_model_prev = None
+
 
 # -------------------------
 # Sidebar navigation
@@ -382,26 +385,57 @@ elif page == "Forecast":
         st.warning("No models found. Train a model first.")
         st.stop()
 
-    # Default selections (use session_state if available)
-    ds_default = st.session_state.dataset_id if st.session_state.dataset_id in datasets else datasets[0]
+    # Default model (use session_state if available)
     m_default = st.session_state.model_id if st.session_state.model_id in models else models[0]
-
-    ds_index = datasets.index(ds_default)
     m_index = models.index(m_default)
 
     colA, colB, colC = st.columns([2, 2, 1])
 
-    with colA:
-        dataset_id = st.selectbox("Dataset", datasets, index=ds_index, key="forecast_dataset")
-
+    # 1) Pick model first (so we can auto-pick its dataset)
     with colB:
         model_id = st.selectbox("Model", models, index=m_index, key="forecast_model")
+
+    # 2) Fetch model metadata from backend
+    model_info = None
+    try:
+        r_info = requests.get(f"{API_URL}/models/{model_id}/info", timeout=5)
+        if r_info.status_code == 200:
+            model_info = r_info.json()
+        else:
+            model_info = None
+    except Exception:
+        model_info = None
+
+    # 3) Choose dataset default:
+    # prefer the model's dataset_id if it exists; otherwise fall back to session_state or first dataset
+    model_ds = (model_info or {}).get("dataset_id")
+    if model_ds in datasets:
+        ds_default = model_ds
+    else:
+        ds_default = st.session_state.dataset_id if st.session_state.dataset_id in datasets else datasets[0]
+
+    # Force dataset dropdown to follow the selected model when the model changes
+    if st.session_state.forecast_model_prev != model_id:
+        st.session_state["forecast_dataset"] = ds_default
+        st.session_state.forecast_result = None
+        st.session_state.forecast_model_prev = model_id
+
+    ds_index = datasets.index(st.session_state.get("forecast_dataset", ds_default))
+
+
+    with colA:
+        dataset_id = st.selectbox("Dataset", datasets, index=ds_index, key="forecast_dataset")
 
     with colC:
         horizon = st.number_input("Horizon (hours)", min_value=1, max_value=168, value=24, step=1)
 
     st.caption(f"dataset_id: {dataset_id}")
     st.caption(f"model_id: {model_id}")
+
+    # Optional: show extra info if available
+    if model_info:
+        st.caption(f"model trained on: {model_info.get('dataset_id')}")
+        st.caption(f"created_at: {model_info.get('created_at')}")
 
     if st.button("Run Forecast"):
         try:
@@ -435,6 +469,20 @@ elif page == "Forecast":
         pred_df["timestamp"] = pd.to_datetime(pred_df["timestamp"], errors="coerce")
         pred_df = pred_df.dropna(subset=["timestamp"]).sort_values("timestamp")
         pred_df = pred_df.set_index("timestamp")
+
+        st.divider()
+        st.subheader("Export")
+
+        export_df = pred_df.reset_index().copy()
+        export_csv = export_df.to_csv(index=False).encode("utf-8")
+
+        st.download_button(
+            "Download forecast as CSV",
+            data=export_csv,
+            file_name=f"forecast_{dataset_id}_{model_id}_{int(horizon)}h.csv",
+            mime="text/csv"
+        )
+
 
         # Pull recent actuals (we request up to 2000, then take the tail)
         try:

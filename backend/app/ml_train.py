@@ -133,6 +133,18 @@ def train_ridge_model(
         "timestamp_col": timestamp_col,
         "target_col": target_col,
         "feature_cols": feature_cols,
+        # NEW: store training settings + results
+        "params": {
+            "alpha": float(alpha),
+            "test_size": float(test_size),
+        },
+        "metrics": {
+            "mae": float(mae),
+            "rmse": float(rmse),
+            "rows_used": int(len(df_feat)),
+            "train_rows": int(len(train_df)),
+            "test_rows": int(len(test_df)),
+        },
         "model": model,
     }
 
