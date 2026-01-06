@@ -18,7 +18,7 @@ from io import BytesIO
 
 from pydantic import BaseModel, Field
 
-from .ml_train import train_ridge_model, forecast_next_hours
+from .ml_train import train_ridge_model, forecast_next_hours, load_model_artifact
 
 # Create the FastAPI app (this is the server)
 # title shows up in the docs UI at /docs
@@ -295,3 +295,27 @@ def predict(req: PredictRequest):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Prediction failed: {e}")
+
+
+@app.get("/models/{model_id}/info")
+def model_info(model_id: str):
+    """
+    Returns metadata about a trained model artifact (no sklearn object returned).
+    """
+    try:
+        artifact = load_model_artifact(model_id)
+
+        return {
+            "model_id": artifact.get("model_id", model_id),
+            "dataset_id": artifact.get("dataset_id"),
+            "created_at": artifact.get("created_at"),
+            "timestamp_col": artifact.get("timestamp_col"),
+            "target_col": artifact.get("target_col"),
+            "feature_cols": artifact.get("feature_cols", []),
+        }
+
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Could not load model info: {e}")
