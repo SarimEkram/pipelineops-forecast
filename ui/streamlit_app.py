@@ -398,6 +398,8 @@ elif page == "Models":
     if "mae" in df.columns:
         df["mae_sort"] = pd.to_numeric(df["mae"], errors="coerce")
         df = df.sort_values(["mae_sort"], ascending=True).drop(columns=["mae_sort"])
+        df = df.reset_index(drop=True)
+        df.index = df.index + 1
 
     st.dataframe(df, use_container_width=True)
 
