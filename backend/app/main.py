@@ -319,3 +319,20 @@ def model_info(model_id: str):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Could not load model info: {e}")
+
+
+@app.get("/models/{model_id}/metrics")
+def model_metrics(model_id: str):
+    try:
+        artifact = load_model_artifact(model_id)
+        return {
+            "model_id": artifact.get("model_id", model_id),
+            "dataset_id": artifact.get("dataset_id"),
+            "params": artifact.get("params", {}),
+            "metrics": artifact.get("metrics", {}),
+            "created_at": artifact.get("created_at"),
+        }
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Could not load model metrics: {e}")
