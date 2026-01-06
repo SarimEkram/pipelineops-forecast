@@ -7,7 +7,6 @@ import requests
 # pandas = used for tables + time parsing + sorting (makes charting easy)
 import pandas as pd
 
-
 # -------------------------
 # App configuration / header
 # -------------------------
@@ -21,7 +20,6 @@ st.title("PipelineOps Forecast")
 # Smaller text under the title
 st.caption("Pipeline operations dashboard (MVP)")
 
-
 # -------------------------
 # Backend address
 # -------------------------
@@ -29,7 +27,6 @@ st.caption("Pipeline operations dashboard (MVP)")
 # Inside docker-compose, "backend" is the service name, not localhost.
 # If you run UI outside Docker, change to "http://localhost:8000".
 API_URL = "http://backend:8000"
-
 
 # -------------------------
 # Session state (memory between reruns)
@@ -66,12 +63,11 @@ if "forecast_result" not in st.session_state:
 if "forecast_model_prev" not in st.session_state:
     st.session_state.forecast_model_prev = None
 
-
 # -------------------------
 # Sidebar navigation
 # -------------------------
 
-page = st.sidebar.radio("Navigation", ["System Check", "Upload Data", "Train Model", "Forecast"])
+page = st.sidebar.radio("Navigation", ["System Check", "Upload Data", "Train Model", "Models", "Forecast"])
 
 # reset Upload Data page UI/preview each time user navigates into it
 if st.session_state.last_page != page:
@@ -84,7 +80,6 @@ if st.session_state.last_page != page:
         st.session_state.forecast_result = None  # prevents old forecast from showing like a "ghost" result
 
     st.session_state.last_page = page
-
 
 # -------------------------
 # Page 1: System Check
@@ -250,7 +245,6 @@ elif page == "Upload Data":
             st.error(f"Preview failed: {e}")
 
 
-
 # -------------------------
 # Page 3: Train Model
 # -------------------------
@@ -351,7 +345,69 @@ elif page == "Train Model":
         st.divider()
         st.subheader("Latest trained model")
         st.caption(f"model_id: {st.session_state.model_id}")
-        st.info("Model files are saved by the backend under `storage/models/<model_id>.joblib` (via the /data volume mount).")
+        st.info(
+            "Model files are saved by the backend under `storage/models/<model_id>.joblib` (via the /data volume mount).")
+
+
+elif page == "Models":
+    st.subheader("Models (Leaderboard)")
+    st.write("Compare trained models and pick one to use for forecasting.")
+
+    # Fetch models list
+    try:
+        r = requests.get(f"{API_URL}/models", timeout=5)
+        model_ids = r.json().get("models", [])
+    except Exception as e:
+        st.error(f"Could not load models: {e}")
+        st.stop()
+
+    if not model_ids:
+        st.warning("No models found. Train a model first.")
+        st.stop()
+
+    rows = []
+    with st.spinner("Loading model metrics..."):
+        for mid in model_ids:
+            try:
+                rm = requests.get(f"{API_URL}/models/{mid}/metrics", timeout=5)
+                if rm.status_code != 200:
+                    # Older models might not have metrics; keep them but mark missing
+                    rows.append({"model_id": mid, "mae": None, "rmse": None, "dataset_id": None, "created_at": None})
+                    continue
+
+                payload = rm.json()
+                metrics = payload.get("metrics", {}) or {}
+                params = payload.get("params", {}) or {}
+
+                rows.append({
+                    "model_id": payload.get("model_id", mid),
+                    "dataset_id": payload.get("dataset_id"),
+                    "created_at": payload.get("created_at"),
+                    "mae": metrics.get("mae"),
+                    "rmse": metrics.get("rmse"),
+                    "rows_used": metrics.get("rows_used"),
+                    "alpha": params.get("alpha"),
+                    "test_size": params.get("test_size"),
+                })
+            except Exception:
+                rows.append({"model_id": mid, "mae": None, "rmse": None, "dataset_id": None, "created_at": None})
+
+    df = pd.DataFrame(rows)
+
+    # Sort best-first (lowest MAE), pushing None to bottom
+    if "mae" in df.columns:
+        df["mae_sort"] = pd.to_numeric(df["mae"], errors="coerce")
+        df = df.sort_values(["mae_sort"], ascending=True).drop(columns=["mae_sort"])
+
+    st.dataframe(df, use_container_width=True)
+
+    st.divider()
+    best_default = st.session_state.model_id if st.session_state.model_id in model_ids else model_ids[0]
+    chosen_model = st.selectbox("Select a model to use", model_ids, index=model_ids.index(best_default))
+
+    if st.button("Use selected model for Forecast"):
+        st.session_state.model_id = chosen_model
+        st.success(f"Selected model_id set to: {chosen_model}. Go to the Forecast page and run prediction.")
 
 
 # -------------------------
@@ -422,7 +478,6 @@ elif page == "Forecast":
 
     ds_index = datasets.index(st.session_state.get("forecast_dataset", ds_default))
 
-
     with colA:
         dataset_id = st.selectbox("Dataset", datasets, index=ds_index, key="forecast_dataset")
 
@@ -482,7 +537,6 @@ elif page == "Forecast":
             file_name=f"forecast_{dataset_id}_{model_id}_{int(horizon)}h.csv",
             mime="text/csv"
         )
-
 
         # Pull recent actuals (we request up to 2000, then take the tail)
         try:
