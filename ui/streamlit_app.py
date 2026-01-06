@@ -388,6 +388,8 @@ elif page == "Models":
                     "rows_used": metrics.get("rows_used"),
                     "alpha": params.get("alpha"),
                     "test_size": params.get("test_size"),
+                    "nmae": metrics.get("nmae"),
+
                 })
             except Exception:
                 rows.append({"model_id": mid, "mae": None, "rmse": None, "dataset_id": None, "created_at": None})
@@ -395,13 +397,16 @@ elif page == "Models":
     df = pd.DataFrame(rows)
 
     # Sort best-first (lowest MAE), pushing None to bottom
-    if "mae" in df.columns:
+    if "nmae" in df.columns and df["nmae"].notna().any():
+        df["nmae_sort"] = pd.to_numeric(df["nmae"], errors="coerce")
+        df = df.sort_values(["nmae_sort"], ascending=True).drop(columns=["nmae_sort"])
+    elif "mae" in df.columns:
         df["mae_sort"] = pd.to_numeric(df["mae"], errors="coerce")
         df = df.sort_values(["mae_sort"], ascending=True).drop(columns=["mae_sort"])
-        df = df.reset_index(drop=True)
-        df.index = df.index + 1
 
-    st.dataframe(df, use_container_width=True)
+    df.insert(0, "rank", range(1, len(df) + 1))
+    st.dataframe(df, use_container_width=True, hide_index=True)
+
 
     st.divider()
     ordered_model_ids = df["model_id"].astype(str).tolist()

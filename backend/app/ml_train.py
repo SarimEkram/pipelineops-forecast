@@ -26,6 +26,7 @@ class TrainResult:
     test_rows: int
     mae: float
     rmse: float
+    nmae: float | None
     model_path: str
     feature_cols: list[str]
 
@@ -121,6 +122,8 @@ def train_ridge_model(
     preds = model.predict(X_test)
     mae = float(mean_absolute_error(y_test, preds))
     rmse = float(np.sqrt(mean_squared_error(y_test, preds)))
+    denom = float(np.mean(np.abs(y_test)))
+    nmae = None if denom < 1e-9 or pd.isna(denom) else float(mae / denom)
 
     # save model artifact
     model_id = uuid.uuid4().hex[:8]
@@ -144,6 +147,8 @@ def train_ridge_model(
             "rows_used": int(len(df_feat)),
             "train_rows": int(len(train_df)),
             "test_rows": int(len(test_df)),
+            "nmae": nmae,
+
         },
         "model": model,
     }
@@ -157,6 +162,7 @@ def train_ridge_model(
         test_rows=int(len(test_df)),
         mae=mae,
         rmse=rmse,
+        nmae=nmae,
         model_path=str(model_path),
         feature_cols=feature_cols,
     )

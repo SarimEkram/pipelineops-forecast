@@ -240,6 +240,7 @@ def train_model(req: TrainModelRequest):
             "test_rows": result.test_rows,  # rows used for testing
             "mae": result.mae,  # mean absolute error
             "rmse": result.rmse,  # root mean squared error
+            "nmae": result.nmae,
             "model_path": result.model_path,  # where the .joblib was saved (inside container)
             "feature_cols": result.feature_cols,  # which features the model trained on
             "model_type": "RidgeRegression",
