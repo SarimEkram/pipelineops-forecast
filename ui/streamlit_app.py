@@ -67,7 +67,8 @@ if "forecast_model_prev" not in st.session_state:
 # Sidebar navigation
 # -------------------------
 
-page = st.sidebar.radio("Navigation", ["System Check", "Upload Data", "Train Model", "Models", "Forecast"], key="nav")
+page = st.sidebar.radio("Navigation", ["System Check", "Upload Data", "Train Model", "Models", "Forecast", "View "
+                                                                                                           "Dataset"], key="nav")
 
 # reset Upload Data page UI/preview each time user navigates into it
 if st.session_state.last_page != page:
@@ -209,8 +210,8 @@ elif page == "Upload Data":
         st.subheader("Dataset Preview")
         st.caption(f"dataset_id: {st.session_state.upload_preview_dataset_id}")
 
-        total_rows = st.session_state.upload_preview_rows
-        max_preview = 500 if total_rows is None else min(500, int(total_rows))
+        total_rows = st.session_state.upload_preview_rows or 2000
+        max_preview = min(2000, int(total_rows))  # Allow up to 2000 rows
         max_preview = max(10, max_preview)
 
         rows = st.slider(
@@ -548,12 +549,24 @@ elif page == "Forecast":
         )
 
         # Pull recent actuals (we request up to 2000, then take the tail)
+        # Let user choose how many actual rows to plot
+        # Pull recent actuals
+        actual_rows_to_plot = st.slider(
+            "Historical data points to show",
+            min_value=50,
+            max_value=2000,
+            value=200,
+            step=50,
+            help="How many recent actual values to display on the forecast plot"
+        )
+
         try:
             r = requests.get(
                 f"{API_URL}/datasets/{dataset_id}/sample",
-                params={"rows": 2000},
+                params={"rows": 2000},  # backend currently returns HEAD(rows)
                 timeout=15
             )
+
             if r.status_code == 200:
                 payload = r.json()
                 actual_df = pd.DataFrame(payload.get("data", []))
@@ -563,13 +576,15 @@ elif page == "Forecast":
                     actual_df["flow_rate"] = pd.to_numeric(actual_df["flow_rate"], errors="coerce")
                     actual_df = actual_df.dropna(subset=["timestamp", "flow_rate"]).sort_values("timestamp")
 
-                    # show last N actual points
-                    actual_df = actual_df.tail(200).set_index("timestamp")
+                    # show last N points (based on slider)
+                    actual_df = actual_df.tail(actual_rows_to_plot).set_index("timestamp")
                 else:
                     actual_df = None
+                    st.error("Dataset sample missing timestamp/flow_rate columns")
             else:
                 actual_df = None
                 st.error(r.text)
+
         except Exception as e:
             actual_df = None
             st.error(f"Could not load actuals for plotting: {e}")
@@ -591,3 +606,44 @@ elif page == "Forecast":
         st.divider()
         st.subheader("Forecast Table (next hours)")
         st.dataframe(pred_df.reset_index(), use_container_width=True)
+
+
+elif page == "View Dataset":
+    st.subheader("View Full Dataset")
+
+    try:
+        r = requests.get(f"{API_URL}/datasets", timeout=5)
+        datasets = r.json().get("datasets", [])
+    except Exception as e:
+        st.error(f"Could not load datasets: {e}")
+        st.stop()
+
+    if not datasets:
+        st.warning("No datasets found. Upload one first.")
+        st.stop()
+
+    chosen_ds = st.selectbox("Select dataset", datasets)
+
+    if st.button("Load Full Dataset"):
+        try:
+            r = requests.get(
+                f"{API_URL}/datasets/{chosen_ds}/sample",
+                params={"rows": 2000},  # Max allowed by backend
+                timeout=30
+            )
+
+            if r.status_code == 200:
+                payload = r.json()
+                df = pd.DataFrame(payload["data"])
+
+                st.caption(f"Showing {len(df)} rows (max 2000)")
+                st.dataframe(df, use_container_width=True, height=600)
+
+                if "timestamp" in df.columns and "flow_rate" in df.columns:
+                    df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
+                    df = df.dropna(subset=["timestamp"]).sort_values("timestamp")
+                    st.line_chart(df.set_index("timestamp")["flow_rate"], height=400)
+            else:
+                st.error(r.text)
+        except Exception as e:
+            st.error(f"Failed to load dataset: {e}")

@@ -170,7 +170,7 @@ def dataset_sample(
     df = df.sort_values("timestamp")
 
     # Take first N rows requested
-    preview = df.head(rows).copy()
+    preview = df.tail(rows).copy()
 
     # Convert timestamp back to string so JSON serialization is clean
     preview["timestamp"] = preview["timestamp"].astype(str)
