@@ -563,7 +563,7 @@ elif page == "Forecast":
         try:
             r = requests.get(
                 f"{API_URL}/datasets/{dataset_id}/sample",
-                params={"rows": 2000},  # backend currently returns HEAD(rows)
+                params={"rows": 2000},  # backend currently returns TAIL(rows) (most recent rows)
                 timeout=15
             )
 
@@ -609,7 +609,8 @@ elif page == "Forecast":
 
 
 elif page == "View Dataset":
-    st.subheader("View Full Dataset")
+    st.subheader("View Dataset (up to 2000 rows)")
+
 
     try:
         r = requests.get(f"{API_URL}/datasets", timeout=5)
