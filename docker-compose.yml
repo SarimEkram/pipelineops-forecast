@@ -6,11 +6,23 @@ services:
       - "8000:8000"
     volumes:
       - ./storage:/data
+    environment:
+      - DATA_DIR=/data
+      - LOG_LEVEL=INFO
+      - MAX_UPLOAD_MB=50
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; u=urllib.request.urlopen('http://localhost:8000/health', timeout=2); sys.exit(0 if u.status==200 else 1)"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
 
   ui:
     build: ./ui
     container_name: pipelineops-ui
     ports:
       - "8501:8501"
+    environment:
+      - API_URL=http://backend:8000
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy

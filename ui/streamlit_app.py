@@ -7,6 +7,9 @@ import requests
 # pandas = used for tables + time parsing + sorting (makes charting easy)
 import pandas as pd
 
+import os
+
+
 # -------------------------
 # App configuration / header
 # -------------------------
@@ -26,7 +29,8 @@ st.caption("Pipeline operations dashboard (MVP)")
 
 # Inside docker-compose, "backend" is the service name, not localhost.
 # If you run UI outside Docker, change to "http://localhost:8000".
-API_URL = "http://backend:8000"
+API_URL = os.getenv("API_URL", "http://backend:8000")
+
 
 # -------------------------
 # Session state (memory between reruns)

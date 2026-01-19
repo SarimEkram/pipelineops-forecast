@@ -13,9 +13,7 @@ from sklearn.linear_model import Ridge
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 
 # Inside Docker, ./storage on your laptop is mounted to /data in the container.
-DATASETS_DIR = Path("/data/datasets")
-MODELS_DIR = Path("/data/models")
-MODELS_DIR.mkdir(parents=True, exist_ok=True)
+from .config import DATASETS_DIR, MODELS_DIR
 
 
 @dataclass

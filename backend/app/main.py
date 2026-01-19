@@ -20,23 +20,37 @@ from pydantic import BaseModel, Field
 
 from .ml_train import train_ridge_model, forecast_next_hours, load_model_artifact
 
+import logging
+import time
+from fastapi import Request
+from .config import DATASETS_DIR, MODELS_DIR, MAX_UPLOAD_MB, LOG_LEVEL
+
 # Create the FastAPI app (this is the server)
 # title shows up in the docs UI at /docs
 app = FastAPI(title="PipelineOps API")
 
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    start = time.time()
+    try:
+        response = await call_next(request)
+    except Exception as e:
+        logger.exception("Unhandled error on %s %s", request.method, request.url.path)
+        raise
+    duration_ms = (time.time() - start) * 1000
+    logger.info("%s %s -> %s (%.1fms)", request.method, request.url.path, response.status_code, duration_ms)
+    return response
+
+
 # In Docker, we mounted: ./storage  ->  /data
 # That means anything we save under /data will appear in your repo's storage/ folder
-DATA_DIR = Path("/data")
-
-# storing uploaded datasets in /data/datasets/
-DATASETS_DIR = DATA_DIR / "datasets"
-
-MODELS_DIR = DATA_DIR / "models"
-MODELS_DIR.mkdir(parents=True, exist_ok=True)
-
-# Make sure the folder exists (parents=True means create missing parent folders too)
-# exist_ok=True means "don't error if it already exists"
-DATASETS_DIR.mkdir(parents=True, exist_ok=True)
+# directories come from config.py (env-driven)
+logger = logging.getLogger("pipelineops")
+logging.basicConfig(
+    level=getattr(logging, LOG_LEVEL, logging.INFO),
+    format="%(asctime)s %(levelname)s %(name)s - %(message)s",
+)
 
 # These are the minimum columns we need for forecasting later
 # timestamp = time column, flow_rate = what we want to forecast
@@ -67,6 +81,10 @@ async def upload_dataset(
     # 2) Read the entire uploaded file into memory as raw bytes
     # await is needed because UploadFile is async
     raw = await file.read()
+
+    max_bytes = MAX_UPLOAD_MB * 1024 * 1024
+    if len(raw) > max_bytes:
+        raise HTTPException(status_code=413, detail=f"file too large (max {MAX_UPLOAD_MB} MB)")
 
     # 3) Try to parse CSV bytes into a pandas DataFrame
     try:
@@ -249,14 +267,15 @@ def train_model(req: TrainModelRequest):
 
     # If the dataset file doesn't exist on disk, return 404
     except FileNotFoundError as e:
+        logger.warning("train_model dataset not found: %s", e)
         raise HTTPException(status_code=404, detail=str(e))
 
-    # If the dataset exists but is invalid (missing cols / too small / etc), return 400
     except ValueError as e:
+        logger.warning("train_model invalid input: %s", e)
         raise HTTPException(status_code=400, detail=str(e))
 
-    # Any unexpected error becomes a 500
     except Exception as e:
+        logger.exception("train_model crashed")
         raise HTTPException(status_code=500, detail=f"Training failed: {e}")
 
 
@@ -289,13 +308,17 @@ def predict(req: PredictRequest):
         return result
 
     except FileNotFoundError as e:
+        logger.warning("predict not found: %s", e)
         raise HTTPException(status_code=404, detail=str(e))
 
     except ValueError as e:
+        logger.warning("predict invalid input: %s", e)
         raise HTTPException(status_code=400, detail=str(e))
 
     except Exception as e:
+        logger.exception("predict crashed")
         raise HTTPException(status_code=500, detail=f"Prediction failed: {e}")
+
 
 
 @app.get("/models/{model_id}/info")
