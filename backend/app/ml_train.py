@@ -14,6 +14,7 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error
 
 # Inside Docker, ./storage on your laptop is mounted to /data in the container.
 from .config import DATASETS_DIR, MODELS_DIR
+from .time_integrity import analyze_time_integrity, raise_if_not_hourly
 
 
 @dataclass
@@ -86,6 +87,9 @@ def train_ridge_model(
     # make sure target is numeric
     df[target_col] = pd.to_numeric(df[target_col], errors="coerce")
     df = df.dropna(subset=[target_col])
+
+    integrity = analyze_time_integrity(df, timestamp_col=timestamp_col)
+    raise_if_not_hourly(integrity, context="training")
 
     # build ML features
     df_feat, feature_cols = _build_features(df, timestamp_col, target_col)
@@ -223,6 +227,9 @@ def forecast_next_hours(
 
     df[target_col] = pd.to_numeric(df[target_col], errors="coerce")
     df = df.dropna(subset=[target_col]).reset_index(drop=True)
+
+    integrity = analyze_time_integrity(df, timestamp_col=timestamp_col)
+    raise_if_not_hourly(integrity, context="forecasting")
 
     if len(df) < 30:
         raise ValueError("Dataset too small for forecasting (need at least ~30 rows).")

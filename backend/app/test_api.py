@@ -17,6 +17,27 @@ def _make_hourly_csv(rows: int = 200) -> bytes:
     return df.to_csv(index=False).encode("utf-8")
 
 
+def _make_15min_csv(rows: int = 200) -> bytes:
+    start = datetime(2025, 1, 1, 0, 0, 0)
+    ts = [start + timedelta(minutes=15 * i) for i in range(rows)]
+    df = pd.DataFrame({
+        "timestamp": [t.isoformat() for t in ts],
+        "flow_rate": [100 + (i % 10) for i in range(rows)],
+    })
+    return df.to_csv(index=False).encode("utf-8")
+
+
+def _make_hourly_with_gap(rows: int = 200) -> bytes:
+    start = datetime(2025, 1, 1, 0, 0, 0)
+    ts = [start + timedelta(hours=i) for i in range(rows)]
+    ts = ts[:50] + ts[80:]  # creates a 30-hour gap
+    df = pd.DataFrame({
+        "timestamp": [t.isoformat() for t in ts],
+        "flow_rate": [100 + (i % 24) for i in range(len(ts))],
+    })
+    return df.to_csv(index=False).encode("utf-8")
+
+
 @pytest.fixture()
 def client(tmp_path, monkeypatch):
     # force backend to use temp storage
@@ -83,3 +104,27 @@ def test_upload_train_predict_flow(client):
     payload = pr.json()
     assert payload["horizon"] == 24
     assert len(payload["predictions"]) == 24
+
+def test_train_blocks_non_hourly(client):
+    csv_bytes = _make_15min_csv(300)
+    up = client.post("/datasets/upload", files={"file": ("x.csv", csv_bytes, "text/csv")})
+    assert up.status_code == 200
+    dataset_id = up.json()["dataset_id"]
+
+    tr = client.post("/models/train", json={"dataset_id": dataset_id, "test_size": 0.2, "alpha": 1.0})
+    assert tr.status_code == 400
+    assert "expected hourly" in tr.text.lower()
+
+
+def test_train_blocks_missing_hours(client):
+    csv_bytes = _make_hourly_with_gap(250)
+    up = client.post("/datasets/upload", files={"file": ("x.csv", csv_bytes, "text/csv")})
+    assert up.status_code == 200
+    payload = up.json()
+    assert "integrity" in payload
+    assert "warnings" in payload
+
+    dataset_id = payload["dataset_id"]
+    tr = client.post("/models/train", json={"dataset_id": dataset_id, "test_size": 0.2, "alpha": 1.0})
+    assert tr.status_code == 400
+    assert "missing" in tr.text.lower()

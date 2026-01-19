@@ -24,6 +24,7 @@ import logging
 import time
 from fastapi import Request
 from .config import DATASETS_DIR, MODELS_DIR, MAX_UPLOAD_MB, LOG_LEVEL
+from .time_integrity import analyze_time_integrity
 
 # Create the FastAPI app (this is the server)
 # title shows up in the docs UI at /docs
@@ -117,6 +118,19 @@ async def upload_dataset(
     # Sort the data by time so it's in correct order for forecasting
     df = df.sort_values("timestamp")
 
+    # Make sure flow_rate is numeric (drop non-numeric rows)
+    df["flow_rate"] = pd.to_numeric(df["flow_rate"], errors="coerce")
+    df = df.dropna(subset=["flow_rate"])
+
+    # If duplicate timestamps exist, aggregate flow_rate by mean (keeps time series sane)
+    dup_count = int(df["timestamp"].duplicated().sum())
+    if dup_count > 0:
+        other_cols = [c for c in df.columns if c not in ["timestamp", "flow_rate"]]
+        agg = {"flow_rate": "mean"}
+        for c in other_cols:
+            agg[c] = "first"
+        df = df.groupby("timestamp", as_index=False).agg(agg).sort_values("timestamp")
+
     # 6) Basic sanity check: ensure the dataset isn't tiny
     if len(df) < 10:
         raise HTTPException(
@@ -135,6 +149,30 @@ async def upload_dataset(
     # 9) Save the cleaned dataset to disk (index=False avoids adding an extra index column)
     df.to_csv(out_path, index=False)
 
+    integrity = analyze_time_integrity(df, timestamp_col="timestamp")
+
+    warnings = []
+
+    if dup_count > 0:
+        warnings.append(
+            f"found duplicate timestamps: {dup_count} (duplicates were aggregated on upload)"
+        )
+
+    if not integrity.get("is_hourly", False):
+        med = integrity.get("interval_median_minutes")
+        med_str = f"{med:.1f}" if isinstance(med, (int, float)) else "unknown"
+        warnings.append(
+            f"expected hourly data, got {integrity.get('interval_label')} "
+            f"(median ~{med_str} minutes). training/forecasting will be blocked until hourly."
+        )
+
+    missing_hours = integrity.get("missing_hours")
+    if isinstance(missing_hours, int) and missing_hours > 0:
+        warnings.append(
+            f"missing hours detected: {missing_hours} missing between first and last timestamp. "
+            f"training/forecasting will be blocked until gaps are fixed."
+        )
+
     # 10) Return metadata so the UI can display “upload successful”
     return {
         # ID the UI will store and use later for training/forecast
@@ -152,6 +190,10 @@ async def upload_dataset(
 
         # Helpful for debugging (shows where it saved inside the container)
         "saved_path": str(out_path),
+
+        "integrity": integrity,
+        "warnings": warnings,
+
     }
 
 
@@ -187,6 +229,9 @@ def dataset_sample(
     # Sort by timestamp so preview is always in time order
     df = df.sort_values("timestamp")
 
+    df["flow_rate"] = pd.to_numeric(df["flow_rate"], errors="coerce")
+    df = df.dropna(subset=["flow_rate"])
+
     # Take first N rows requested
     preview = df.tail(rows).copy()
 
@@ -200,6 +245,29 @@ def dataset_sample(
         "data": preview.to_dict(orient="records")  # list of {timestamp, flow_rate:}
     }
 
+@app.get("/datasets/{dataset_id}/info")
+def dataset_info(dataset_id: str):
+    path = DATASETS_DIR / f"{dataset_id}.csv"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="dataset not found")
+
+    df = pd.read_csv(path)
+    if "timestamp" not in df.columns or "flow_rate" not in df.columns:
+        raise HTTPException(status_code=400, detail="dataset missing timestamp/flow_rate")
+
+    df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
+    df["flow_rate"] = pd.to_numeric(df["flow_rate"], errors="coerce")
+    df = df.dropna(subset=["timestamp", "flow_rate"]).sort_values("timestamp")
+
+    integrity = analyze_time_integrity(df, timestamp_col="timestamp")
+
+    return {
+        "dataset_id": dataset_id,
+        "rows": int(len(df)),
+        "min_ts": str(df["timestamp"].min()),
+        "max_ts": str(df["timestamp"].max()),
+        "integrity": integrity,
+    }
 
 # -------------------------
 # ML Training Request Schema
@@ -318,7 +386,6 @@ def predict(req: PredictRequest):
     except Exception as e:
         logger.exception("predict crashed")
         raise HTTPException(status_code=500, detail=f"Prediction failed: {e}")
-
 
 
 @app.get("/models/{model_id}/info")

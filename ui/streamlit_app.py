@@ -201,6 +201,10 @@ elif page == "Upload Data":
                     st.session_state.model_id = None
 
                     st.success(f"Upload successful. Dataset ID: {st.session_state.dataset_id}")
+                    warnings = data.get("warnings", []) or []
+                    for w in warnings:
+                        st.warning(w)
+
                     st.json(data)
                 else:
                     st.error(r.text)
