@@ -308,7 +308,7 @@ elif page == "Train Model":
     # final gate: only allow training if BOTH checks pass
     can_train = is_hourly and (missing_hours == 0)
 
-    #  debug view
+    # (optional) helpful debug view
     with st.expander("Show integrity details"):
         st.json(integrity)
 
