@@ -104,6 +104,7 @@ def analyze_time_integrity(
 def raise_if_not_hourly(integrity: dict[str, Any], context: str = "operation") -> None:
     if not integrity.get("is_hourly", False):
         label = integrity.get("interval_label", "unknown")
+
         med = integrity.get("interval_median_minutes")
         if isinstance(med, (int, float)):
             raise ValueError(f"{context}: expected hourly data, got {label} (median interval ~{med:.1f} minutes).")

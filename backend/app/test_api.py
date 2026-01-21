@@ -45,7 +45,7 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setenv("LOG_LEVEL", "WARNING")
     monkeypatch.setenv("MAX_UPLOAD_MB", "50")
 
-    # IMPORTANT: reload module so it picks up env vars
+    #  reload module so it picks up env vars
     from app import main as main_mod  # if your package name differs, adjust import
     importlib.reload(main_mod)
 
