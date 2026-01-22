@@ -35,7 +35,7 @@ ENV/
 *.log
 
 # -----------------------
-# Project runtime artifacts (DO NOT COMMIT)
+# Project runtime artifacts
 # -----------------------
 # Uploaded datasets + trained model artifacts
 storage/datasets/*
@@ -44,3 +44,8 @@ storage/models/*
 # Keep empty folders in git
 !storage/datasets/.gitkeep
 !storage/models/.gitkeep
+
+# pytest / coverage
+.pytest_cache/
+.coverage
+htmlcov/
