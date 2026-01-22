@@ -261,12 +261,29 @@ def dataset_info(dataset_id: str):
 
     integrity = analyze_time_integrity(df, timestamp_col="timestamp")
 
+    # --- NEW: readiness gate for training/forecasting ---
+    block_reasons = []
+    ready = True
+
+    if not integrity.get("is_hourly", False):
+        ready = False
+        block_reasons.append("not_hourly")
+
+    missing_hours = integrity.get("missing_hours")
+    if isinstance(missing_hours, int) and missing_hours > 0:
+        ready = False
+        block_reasons.append("missing_hours")
+
     return {
         "dataset_id": dataset_id,
         "rows": int(len(df)),
         "min_ts": str(df["timestamp"].min()),
         "max_ts": str(df["timestamp"].max()),
         "integrity": integrity,
+
+        # --- NEW fields the UI will use ---
+        "ready_for_training": ready,
+        "block_reasons": block_reasons,
     }
 
 

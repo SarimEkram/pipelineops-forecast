@@ -360,7 +360,9 @@ elif page == "Train Model":
         )
 
     # Train button (only runs when clicked)
-    if st.button("Train Model"):
+    if st.button("Train Model", disabled=not can_train):
+        if not can_train:
+            st.stop()
         try:
             payload = {
                 "dataset_id": st.session_state.dataset_id,
@@ -547,12 +549,50 @@ elif page == "Forecast":
     st.caption(f"dataset_id: {dataset_id}")
     st.caption(f"model_id: {model_id}")
 
+    # --- data realism gate (hourly + no missing hours) ---
+    info = None
+    try:
+        r_info = requests.get(f"{API_URL}/datasets/{dataset_id}/info", timeout=5)
+        if r_info.status_code == 200:
+            info = r_info.json()
+        else:
+            st.error(r_info.text)
+    except Exception as e:
+        st.error(f"Could not load dataset info: {e}")
+
+    integrity = (info or {}).get("integrity", {}) or {}
+    is_hourly = bool(integrity.get("is_hourly", False))
+
+    missing_hours_raw = integrity.get("missing_hours")
+    missing_hours = int(missing_hours_raw) if isinstance(missing_hours_raw, int) else 0
+
+    if not is_hourly:
+        label = integrity.get("interval_label", "unknown")
+        med = integrity.get("interval_median_minutes")
+        med_str = f"{med:.1f}" if isinstance(med, (int, float)) else "unknown"
+        st.error(f"blocked: expected hourly data, got {label} (median ~{med_str} minutes).")
+
+    if missing_hours > 0:
+        st.error(f"blocked: dataset has missing hours ({missing_hours}).")
+
+    can_forecast = is_hourly and (missing_hours == 0)
+
+    with st.expander("Show integrity details"):
+        st.json(integrity)
+
+    # prevent “ghost” old results if dataset is invalid
+    if not can_forecast:
+        st.session_state.forecast_result = None
+
     # Optional: show extra info if available
     if model_info:
         st.caption(f"model trained on: {model_info.get('dataset_id')}")
         st.caption(f"created_at: {model_info.get('created_at')}")
 
-    if st.button("Run Forecast"):
+    if st.button("Run Forecast", disabled=not can_forecast):
+        if not can_forecast:
+            st.stop()
+
         try:
             payload = {
                 "model_id": model_id,
