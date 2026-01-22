@@ -269,9 +269,9 @@ def dataset_info(dataset_id: str):
         "integrity": integrity,
     }
 
-# -------------------------
+
 # ML Training Request Schema
-# -------------------------
+
 
 # This defines the JSON shape the client must send to /models/train
 class TrainModelRequest(BaseModel):
@@ -292,9 +292,8 @@ class TrainModelRequest(BaseModel):
     alpha: float = Field(1.0, gt=0.0, description="Ridge regularization strength")
 
 
-# -------------------------
 # ML Training Endpoint
-# -------------------------
+
 
 @app.post("/models/train")
 def train_model(req: TrainModelRequest):
