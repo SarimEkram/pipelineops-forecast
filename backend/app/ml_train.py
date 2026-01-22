@@ -12,7 +12,7 @@ import joblib
 from sklearn.linear_model import Ridge
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 
-# Inside Docker, ./storage on your laptop is mounted to /data in the container.
+
 from .config import DATASETS_DIR, MODELS_DIR
 from .time_integrity import analyze_time_integrity, raise_if_not_hourly
 
