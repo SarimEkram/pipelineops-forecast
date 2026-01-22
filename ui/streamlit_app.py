@@ -68,7 +68,6 @@ page = st.sidebar.radio(
     key="nav"
 )
 
-
 # reset Upload Data page UI/preview each time user navigates into it
 if st.session_state.last_page != page:
     if page == "Upload Data":
@@ -80,7 +79,6 @@ if st.session_state.last_page != page:
         st.session_state.forecast_result = None  # prevents old forecast from showing like a "ghost" result
 
     st.session_state.last_page = page
-
 
 # Page 1: System Check
 
@@ -222,7 +220,6 @@ if page == "Storage Manager":
                     st.error(dr.text)
             except Exception as e:
                 st.error(f"Delete failed: {e}")
-
 
 
 # Page 2: Upload Data
