@@ -270,6 +270,48 @@ elif page == "Train Model":
 
     chosen = st.selectbox("Choose an existing dataset_id", datasets, key="dataset_choice")
     st.session_state.dataset_id = chosen
+
+    # --- data realism gate (hourly + no missing hours) ---
+    info = None
+    try:
+        r_info = requests.get(
+            f"{API_URL}/datasets/{st.session_state.dataset_id}/info",
+            timeout=5
+        )
+        if r_info.status_code == 200:
+            info = r_info.json()
+        else:
+            st.error(r_info.text)
+    except Exception as e:
+        st.error(f"Could not load dataset info: {e}")
+
+    integrity = (info or {}).get("integrity", {}) or {}
+
+    is_hourly = bool(integrity.get("is_hourly", False))
+
+    missing_hours_raw = integrity.get("missing_hours")
+    missing_hours = int(missing_hours_raw) if isinstance(missing_hours_raw, int) else 0
+
+    # show the two checks clearly
+    if not is_hourly:
+        label = integrity.get("interval_label", "unknown")
+        med = integrity.get("interval_median_minutes")
+        med_str = f"{med:.1f}" if isinstance(med, (int, float)) else "unknown"
+        st.error(f"blocked: expected hourly data, got {label} (median ~{med_str} minutes).")
+
+    if missing_hours > 0:
+        st.error(f"blocked: dataset has missing hours ({missing_hours}).")
+
+    if is_hourly and missing_hours == 0:
+        st.success("dataset is valid for training (hourly, no missing hours).")
+
+    # final gate: only allow training if BOTH checks pass
+    can_train = is_hourly and (missing_hours == 0)
+
+    # (optional) helpful debug view
+    with st.expander("Show integrity details"):
+        st.json(integrity)
+
     st.caption(f"dataset_id: {st.session_state.dataset_id}")
 
     # If no dataset uploaded yet, we can’t train anything
