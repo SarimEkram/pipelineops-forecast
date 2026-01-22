@@ -24,7 +24,7 @@ import logging
 import time
 from fastapi import Request
 from .config import DATASETS_DIR, MODELS_DIR, MAX_UPLOAD_MB, LOG_LEVEL
-from .time_integrity import analyze_time_integrity
+from .time_integrity import analyze_time_integrity, gate_from_integrity
 
 # Create the FastAPI app (this is the server)
 # title shows up in the docs UI at /docs
@@ -150,6 +150,7 @@ async def upload_dataset(
     df.to_csv(out_path, index=False)
 
     integrity = analyze_time_integrity(df, timestamp_col="timestamp")
+    gate = gate_from_integrity(integrity)
 
     warnings = []
 
@@ -193,6 +194,7 @@ async def upload_dataset(
 
         "integrity": integrity,
         "warnings": warnings,
+        "gate": gate,
 
     }
 
@@ -245,6 +247,7 @@ def dataset_sample(
         "data": preview.to_dict(orient="records")  # list of {timestamp, flow_rate:}
     }
 
+
 @app.get("/datasets/{dataset_id}/info")
 def dataset_info(dataset_id: str):
     path = DATASETS_DIR / f"{dataset_id}.csv"
@@ -260,19 +263,7 @@ def dataset_info(dataset_id: str):
     df = df.dropna(subset=["timestamp", "flow_rate"]).sort_values("timestamp")
 
     integrity = analyze_time_integrity(df, timestamp_col="timestamp")
-
-    # --- NEW: readiness gate for training/forecasting ---
-    block_reasons = []
-    ready = True
-
-    if not integrity.get("is_hourly", False):
-        ready = False
-        block_reasons.append("not_hourly")
-
-    missing_hours = integrity.get("missing_hours")
-    if isinstance(missing_hours, int) and missing_hours > 0:
-        ready = False
-        block_reasons.append("missing_hours")
+    gate = gate_from_integrity(integrity)
 
     return {
         "dataset_id": dataset_id,
@@ -280,10 +271,7 @@ def dataset_info(dataset_id: str):
         "min_ts": str(df["timestamp"].min()),
         "max_ts": str(df["timestamp"].max()),
         "integrity": integrity,
-
-        # --- NEW fields the UI will use ---
-        "ready_for_training": ready,
-        "block_reasons": block_reasons,
+        "gate": gate,
     }
 
 

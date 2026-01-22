@@ -21,10 +21,10 @@ def _guess_interval_label(minutes: float) -> str:
 
 
 def analyze_time_integrity(
-    df: pd.DataFrame,
-    timestamp_col: str = "timestamp",
-    expected_freq: str = "h",
-    tolerance_minutes: int = 2,
+        df: pd.DataFrame,
+        timestamp_col: str = "timestamp",
+        expected_freq: str = "h",
+        tolerance_minutes: int = 2,
 ) -> dict[str, Any]:
     out: dict[str, Any] = {
         "expected_freq": expected_freq,
@@ -102,19 +102,51 @@ def analyze_time_integrity(
 
 
 def raise_if_not_hourly(integrity: dict[str, Any], context: str = "operation") -> None:
+    reasons = blocking_reasons(integrity, context=context)
+    if reasons:
+        raise ValueError(reasons[0])
+
+
+def blocking_reasons(integrity: dict[str, Any], context: str = "operation") -> list[str]:
+    """
+    Returns the exact reasons we would block an operation (training/forecasting/etc).
+    This lets the UI read backend-truth without re-implementing logic.
+    """
+    reasons: list[str] = []
+
+    # 1) Not hourly (same message style as raise_if_not_hourly)
     if not integrity.get("is_hourly", False):
         label = integrity.get("interval_label", "unknown")
-
         med = integrity.get("interval_median_minutes")
         if isinstance(med, (int, float)):
-            raise ValueError(f"{context}: expected hourly data, got {label} (median interval ~{med:.1f} minutes).")
-        raise ValueError(f"{context}: expected hourly data, got {label}.")
+            reasons.append(f"{context}: expected hourly data, got {label} (median interval ~{med:.1f} minutes).")
+        else:
+            reasons.append(f"{context}: expected hourly data, got {label}.")
+        return reasons  # if not hourly, missing-hours isn't computed anyway
 
+    # 2) Missing hours (same message style as raise_if_not_hourly)
     missing = integrity.get("missing_hours")
     if isinstance(missing, int) and missing > 0:
         rate = integrity.get("missing_rate")
         pct = f"{(rate * 100):.1f}%" if isinstance(rate, (int, float)) else "unknown"
-        raise ValueError(
+        reasons.append(
             f"{context}: dataset has missing hours ({missing} missing, missing_rate={pct}). "
             f"Fix gaps (resample/fill) before training/forecasting."
         )
+
+    return reasons
+
+
+def gate_from_integrity(integrity: dict[str, Any]) -> dict[str, Any]:
+    """
+    Convenience payload the UI can rely on.
+    """
+    train_reasons = blocking_reasons(integrity, context="training")
+    forecast_reasons = blocking_reasons(integrity, context="forecasting")
+
+    return {
+        "can_train": len(train_reasons) == 0,
+        "can_forecast": len(forecast_reasons) == 0,
+        "train_block_reasons": train_reasons,
+        "forecast_block_reasons": forecast_reasons,
+    }
