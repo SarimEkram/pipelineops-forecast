@@ -431,3 +431,63 @@ def model_metrics(model_id: str):
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Could not load model metrics: {e}")
+
+
+@app.get("/datasets")
+def list_datasets():
+    files = sorted(DATASETS_DIR.glob("*.csv"))
+    return {"datasets": [f.stem for f in files]}
+
+
+@app.get("/models")
+def list_models():
+    files = sorted(MODELS_DIR.glob("*.joblib"))
+    return {"models": [f.stem for f in files]}
+
+
+def _validate_id(id_str: str, kind: str):
+    # simple safety: prevent path traversal / weird filenames
+    if not id_str or len(id_str) > 64 or (not id_str.replace("-", "").isalnum()):
+        raise HTTPException(status_code=400, detail=f"invalid {kind}_id")
+
+
+@app.delete("/models/{model_id}")
+def delete_model(model_id: str):
+    _validate_id(model_id, "model")
+
+    path = MODELS_DIR / f"{model_id}.joblib"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="model not found")
+
+    path.unlink()
+    return {"deleted": True, "model_id": model_id}
+
+
+@app.delete("/datasets/{dataset_id}")
+def delete_dataset(dataset_id: str):
+    _validate_id(dataset_id, "dataset")
+
+    path = DATASETS_DIR / f"{dataset_id}.csv"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="dataset not found")
+
+    # block deleting a dataset if any model references it
+    used_by = []
+    for f in sorted(MODELS_DIR.glob("*.joblib")):
+        mid = f.stem
+        try:
+            art = load_model_artifact(mid)
+            if art.get("dataset_id") == dataset_id:
+                used_by.append(mid)
+        except Exception:
+            # ignore unreadable/old artifacts
+            continue
+
+    if used_by:
+        raise HTTPException(
+            status_code=409,
+            detail=f"cannot delete dataset {dataset_id}; used by models: {used_by}. delete those models first."
+        )
+
+    path.unlink()
+    return {"deleted": True, "dataset_id": dataset_id}

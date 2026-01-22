@@ -62,9 +62,12 @@ if "forecast_model_prev" not in st.session_state:
 
 # Sidebar navigation
 
-page = st.sidebar.radio("Navigation", ["System Check", "Upload Data", "Train Model", "Models", "Forecast", "View "
-                                                                                                           "Dataset"],
-                        key="nav")
+page = st.sidebar.radio(
+    "Navigation",
+    ["Storage Manager", "Upload Data", "Train Model", "Models", "Forecast", "View Dataset"],
+    key="nav"
+)
+
 
 # reset Upload Data page UI/preview each time user navigates into it
 if st.session_state.last_page != page:
@@ -81,20 +84,145 @@ if st.session_state.last_page != page:
 
 # Page 1: System Check
 
-if page == "System Check":
-    st.subheader("System Check")
+if page == "Storage Manager":
+    st.subheader("Storage Manager")
+    st.caption("View everything saved on the backend and delete datasets/models.")
+
+    colR1, colR2 = st.columns([1, 1])
+    with colR1:
+        if st.button("Refresh lists"):
+            st.rerun()
+
+    # ---------
+    # Datasets
+    # ---------
+    st.divider()
+    st.subheader("Datasets")
 
     try:
-        # Ping backend health endpoint so we know the API is reachable
-        r = requests.get(f"{API_URL}/health", timeout=2)
-
-        if r.status_code == 200:
-            st.success(f"Backend API: OK ({r.json()})")
-        else:
-            st.error(f"Backend API returned {r.status_code}: {r.text}")
-
+        r = requests.get(f"{API_URL}/datasets", timeout=5)
+        if r.status_code != 200:
+            st.error(r.text)
+            st.stop()
+        dataset_ids = r.json().get("datasets", [])
     except Exception as e:
-        st.error(f"Backend API not reachable ({e})")
+        st.error(f"Could not load datasets: {e}")
+        st.stop()
+
+    if not dataset_ids:
+        st.info("No datasets found.")
+    else:
+        rows = []
+        with st.spinner("Loading dataset info..."):
+            for ds in dataset_ids:
+                try:
+                    info_r = requests.get(f"{API_URL}/datasets/{ds}/info", timeout=5)
+                    if info_r.status_code == 200:
+                        info = info_r.json()
+                        integ = (info.get("integrity") or {})
+                        rows.append({
+                            "dataset_id": ds,
+                            "rows": info.get("rows"),
+                            "min_ts": info.get("min_ts"),
+                            "max_ts": info.get("max_ts"),
+                            "is_hourly": integ.get("is_hourly"),
+                            "missing_hours": integ.get("missing_hours"),
+                            "interval_label": integ.get("interval_label"),
+                        })
+                    else:
+                        rows.append({"dataset_id": ds, "rows": None, "min_ts": None, "max_ts": None})
+                except Exception:
+                    rows.append({"dataset_id": ds, "rows": None, "min_ts": None, "max_ts": None})
+
+        df_ds = pd.DataFrame(rows)
+        st.dataframe(df_ds, use_container_width=True, hide_index=True)
+
+        del_ds = st.selectbox("Select dataset to delete", dataset_ids, key="delete_dataset_select")
+        confirm_ds = st.checkbox("I understand this permanently deletes the dataset file.", key="confirm_delete_ds")
+
+        if st.button("Delete selected dataset", type="primary", disabled=not confirm_ds):
+            try:
+                dr = requests.delete(f"{API_URL}/datasets/{del_ds}", timeout=10)
+                if dr.status_code == 200:
+                    st.success(f"Deleted dataset: {del_ds}")
+
+                    # clear state if it was selected anywhere
+                    if st.session_state.get("dataset_id") == del_ds:
+                        st.session_state.dataset_id = None
+                    if st.session_state.get("upload_preview_dataset_id") == del_ds:
+                        st.session_state.upload_preview_dataset_id = None
+
+                    st.rerun()
+                else:
+                    st.error(dr.text)
+            except Exception as e:
+                st.error(f"Delete failed: {e}")
+
+    # ---------
+    # Models
+    # ---------
+    st.divider()
+    st.subheader("Models")
+
+    try:
+        r = requests.get(f"{API_URL}/models", timeout=5)
+        if r.status_code != 200:
+            st.error(r.text)
+            st.stop()
+        model_ids = r.json().get("models", [])
+    except Exception as e:
+        st.error(f"Could not load models: {e}")
+        st.stop()
+
+    if not model_ids:
+        st.info("No models found.")
+    else:
+        mrows = []
+        with st.spinner("Loading model metrics..."):
+            for mid in model_ids:
+                try:
+                    rm = requests.get(f"{API_URL}/models/{mid}/metrics", timeout=5)
+                    if rm.status_code == 200:
+                        payload = rm.json()
+                        metrics = payload.get("metrics", {}) or {}
+                        params = payload.get("params", {}) or {}
+                        mrows.append({
+                            "model_id": payload.get("model_id", mid),
+                            "dataset_id": payload.get("dataset_id"),
+                            "created_at": payload.get("created_at"),
+                            "nmae": metrics.get("nmae"),
+                            "mae": metrics.get("mae"),
+                            "rmse": metrics.get("rmse"),
+                            "rows_used": metrics.get("rows_used"),
+                            "alpha": params.get("alpha"),
+                            "test_size": params.get("test_size"),
+                        })
+                    else:
+                        mrows.append({"model_id": mid})
+                except Exception:
+                    mrows.append({"model_id": mid})
+
+        df_m = pd.DataFrame(mrows)
+        st.dataframe(df_m, use_container_width=True, hide_index=True)
+
+        del_m = st.selectbox("Select model to delete", model_ids, key="delete_model_select")
+        confirm_m = st.checkbox("I understand this permanently deletes the model artifact.", key="confirm_delete_m")
+
+        if st.button("Delete selected model", disabled=not confirm_m):
+            try:
+                dr = requests.delete(f"{API_URL}/models/{del_m}", timeout=10)
+                if dr.status_code == 200:
+                    st.success(f"Deleted model: {del_m}")
+
+                    if st.session_state.get("model_id") == del_m:
+                        st.session_state.model_id = None
+
+                    st.rerun()
+                else:
+                    st.error(dr.text)
+            except Exception as e:
+                st.error(f"Delete failed: {e}")
+
 
 
 # Page 2: Upload Data
@@ -243,7 +371,6 @@ elif page == "Upload Data":
 
         except Exception as e:
             st.error(f"Preview failed: {e}")
-
 
 
 # Page 3: Train Model
