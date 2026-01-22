@@ -9,10 +9,7 @@ import pandas as pd
 
 import os
 
-
-# -------------------------
 # App configuration / header
-# -------------------------
 
 # Sets basic settings for the Streamlit page (tab title + wide layout)
 st.set_page_config(page_title="PipelineOps Forecast", layout="wide")
@@ -23,18 +20,14 @@ st.title("PipelineOps Forecast")
 # Smaller text under the title
 st.caption("Pipeline operations dashboard (MVP)")
 
-# -------------------------
 # Backend address
-# -------------------------
 
 # Inside docker-compose, "backend" is the service name, not localhost.
 # If you run UI outside Docker, change to "http://localhost:8000".
 API_URL = os.getenv("API_URL", "http://backend:8000")
 
-
-# -------------------------
 # Session state (memory between reruns)
-# -------------------------
+
 
 # Streamlit reruns the script any time you interact with the UI.
 # session_state is how we "remember" things like dataset_id/model_id between reruns.
@@ -67,12 +60,11 @@ if "forecast_result" not in st.session_state:
 if "forecast_model_prev" not in st.session_state:
     st.session_state.forecast_model_prev = None
 
-# -------------------------
 # Sidebar navigation
-# -------------------------
 
 page = st.sidebar.radio("Navigation", ["System Check", "Upload Data", "Train Model", "Models", "Forecast", "View "
-                                                                                                           "Dataset"], key="nav")
+                                                                                                           "Dataset"],
+                        key="nav")
 
 # reset Upload Data page UI/preview each time user navigates into it
 if st.session_state.last_page != page:
@@ -86,9 +78,9 @@ if st.session_state.last_page != page:
 
     st.session_state.last_page = page
 
-# -------------------------
+
 # Page 1: System Check
-# -------------------------
+
 if page == "System Check":
     st.subheader("System Check")
 
@@ -105,9 +97,8 @@ if page == "System Check":
         st.error(f"Backend API not reachable ({e})")
 
 
-# -------------------------
 # Page 2: Upload Data
-# -------------------------
+
 elif page == "Upload Data":
     st.subheader("Upload Data (CSV or Excel)")
     st.write("CSV must have columns: timestamp, flow_rate. Excel can be mapped using dropdowns below.")
@@ -254,9 +245,9 @@ elif page == "Upload Data":
             st.error(f"Preview failed: {e}")
 
 
-# -------------------------
+
 # Page 3: Train Model
-# -------------------------
+
 elif page == "Train Model":
     st.subheader("Train Model (Ridge Regression)")
 
@@ -460,7 +451,6 @@ elif page == "Models":
     df.insert(0, "rank", range(1, len(df) + 1))
     st.dataframe(df, use_container_width=True, hide_index=True)
 
-
     st.divider()
     ordered_model_ids = df["model_id"].astype(str).tolist()
     best_default = st.session_state.model_id if st.session_state.model_id in ordered_model_ids else ordered_model_ids[0]
@@ -472,9 +462,8 @@ elif page == "Models":
         st.rerun()
 
 
-# -------------------------
 # Page 4: Forecast
-# -------------------------
+
 elif page == "Forecast":
     st.subheader("Forecast (Next-Hours Prediction)")
     st.write("Pick a dataset + a trained model, then generate a next-hours forecast.")
@@ -700,7 +689,6 @@ elif page == "Forecast":
 
 elif page == "View Dataset":
     st.subheader("View Dataset (up to 2000 rows)")
-
 
     try:
         r = requests.get(f"{API_URL}/datasets", timeout=5)
