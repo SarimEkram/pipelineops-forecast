@@ -37,7 +37,7 @@ def _build_features(df: pd.DataFrame, timestamp_col: str, target_col: str) -> tu
     We predict the NEXT hour flow_rate using:
     - time features: hour of day, day of week
     - lag features: previous hour, previous day
-    - rolling mean: 24-hour moving average (shifted so we don't leak the future)
+    - rolling mean: 24-hour moving average (shifted, so we don't leak the future)
     """
     df = df.copy()
 
@@ -138,7 +138,7 @@ def train_ridge_model(
         "timestamp_col": timestamp_col,
         "target_col": target_col,
         "feature_cols": feature_cols,
-        # NEW: store training settings + results
+
         "params": {
             "alpha": float(alpha),
             "test_size": float(test_size),
