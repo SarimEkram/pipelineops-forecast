@@ -134,7 +134,7 @@ def train_ridge_model(
     artifact = {
         "model_id": model_id,
         "dataset_id": dataset_id,
-        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_at": datetime.now(timezone.utc).strftime("%Y:%m:%d %H:%M:%S UTC"),
         "timestamp_col": timestamp_col,
         "target_col": target_col,
         "feature_cols": feature_cols,

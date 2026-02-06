@@ -203,6 +203,11 @@ if page == "Storage Manager":
         df_m = pd.DataFrame(mrows)
         st.dataframe(df_m, use_container_width=True, hide_index=True)
 
+        df_m["created_at"] = pd.to_datetime(df_m["created_at"], errors="coerce", utc=True) \
+            .dt.strftime("%Y:%m:%d %H:%M:%S")
+
+        st.dataframe(df_m, use_container_width=True, hide_index=True)
+
         del_m = st.selectbox("Select model to delete", model_ids, key="delete_model_select")
         confirm_m = st.checkbox("I understand this permanently deletes the model artifact.", key="confirm_delete_m")
 
@@ -563,6 +568,9 @@ elif page == "Models":
                 rows.append({"model_id": mid, "mae": None, "rmse": None, "dataset_id": None, "created_at": None})
 
     df = pd.DataFrame(rows)
+
+    df["created_at"] = pd.to_datetime(df["created_at"], errors="coerce", utc=True) \
+        .dt.strftime("%Y:%m:%d %H:%M:%S")
 
     # Sort best-first (lowest MAE), pushing None to bottom
     if "nmae" in df.columns and df["nmae"].notna().any():
